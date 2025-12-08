@@ -111,7 +111,7 @@ def test_validation_error():
 
 
 if __name__ == "__main__":
-    print("\n🚀 Starting Fraud Detection API Tests")
+    print("\nStarting Fraud Detection API Tests")
     print("Make sure the server is running: python main.py\n")
     
     try:
@@ -126,11 +126,11 @@ if __name__ == "__main__":
         test_validation_error()
         
         print("\n" + "="*60)
-        print("✅ All tests completed!")
+        print("All tests completed!")
         print("="*60 + "\n")
         
     except requests.exceptions.ConnectionError:
-        print("\n❌ Error: Could not connect to API")
+        print("\nError: Could not connect to API")
         print("Make sure the server is running: python main.py\n")
     except Exception as e:
-        print(f"\n❌ Unexpected error: {e}\n")
+        print(f"\nUnexpected error: {e}\n")
