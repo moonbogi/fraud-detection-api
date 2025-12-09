@@ -1,7 +1,7 @@
 """
 Fraud Detection API
 
-Weekend project to learn LLM application development. Uses Claude API to analyze
+Weekend project to learn LLM application development. Uses OpenAI GPT-4 to analyze
 credit card transactions for fraud indicators.
 """
 
@@ -13,7 +13,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
-from anthropic import Anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -29,16 +29,16 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title="Fraud Detection API",
-    description="Simple fraud analysis using Claude API",
+    description="Simple fraud analysis using OpenAI GPT-4",
     version="0.1.0"
 )
 
-# Initialize Anthropic client
-anthropic_client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 
 class TransactionRequest(BaseModel):
     """Transaction data to analyze."""
-    transaction_id: str = Field(..., description="Unique transaction identifier")
     transaction_id: str = Field(..., description="Unique transaction identifier")
     amount: float = Field(..., gt=0, description="Transaction amount in USD")
     merchant: str = Field(..., min_length=1, max_length=200, description="Merchant name")
@@ -140,9 +140,9 @@ Be specific and practical. Focus on concrete indicators."""
     return prompt
 
 
-def parse_claude_response(response_text: str) -> dict:
+def parse_response(response_text: str) -> dict:
     """
-    Extract the structured fields from Claude's response.
+    Extract the structured fields from the LLM response.
     Quick and dirty regex parsing - would use JSON mode for anything real.
     """
     result = {
@@ -193,13 +193,75 @@ async def root():
     }
 
 
+def analyze_fraud_mock(transaction: TransactionRequest) -> dict:
+    """
+    Mock fraud analysis using rule-based logic.
+    This simulates LLM analysis for demo purposes without API calls.
+    """
+    red_flags = []
+    
+    # Check amount
+    if transaction.amount >= 5000:
+        red_flags.append("Large transaction amount")
+    if transaction.amount % 1000 == 0 or transaction.amount % 500 == 0:
+        red_flags.append("Round number amount (common in fraud)")
+    
+    # Check location patterns
+    high_risk_locations = ["nigeria", "ghana", "russia", "unknown", "international"]
+    if any(loc in transaction.location.lower() for loc in high_risk_locations):
+        red_flags.append("High-risk location")
+    
+    # Check time patterns (late night)
+    try:
+        dt = datetime.fromisoformat(transaction.timestamp.replace('Z', '+00:00'))
+        if dt.hour < 6 or dt.hour > 23:
+            red_flags.append("Unusual transaction time")
+    except:
+        pass
+    
+    # Check merchant patterns
+    risky_merchants = ["wire transfer", "bitcoin", "crypto", "gift card", "money order"]
+    if any(merchant in transaction.merchant.lower() for merchant in risky_merchants):
+        red_flags.append("High-risk merchant category")
+    
+    # Determine risk level
+    if len(red_flags) >= 3:
+        risk_level = "high"
+        confidence = "high"
+        reasoning = f"Multiple fraud indicators detected including {', '.join(red_flags[:3])}. Transaction shows {len(red_flags)} risk factors that are commonly associated with fraudulent activity."
+        recommendations = "Decline transaction and contact cardholder immediately for verification."
+    elif len(red_flags) >= 2:
+        risk_level = "medium"
+        confidence = "medium"
+        reasoning = f"Transaction shows concerning patterns: {', '.join(red_flags)}. While not definitively fraudulent, these factors warrant additional scrutiny."
+        recommendations = "Flag for manual review and consider step-up authentication."
+    elif len(red_flags) == 1:
+        risk_level = "low"
+        confidence = "medium"
+        reasoning = f"Minor concern noted: {red_flags[0]}. Transaction otherwise appears normal for the category and amount range."
+        recommendations = "Allow transaction to proceed with standard monitoring."
+    else:
+        risk_level = "low"
+        confidence = "high"
+        reasoning = "Transaction appears legitimate with appropriate amount for category, typical location patterns, and no suspicious indicators detected."
+        recommendations = "Approve transaction."
+    
+    return {
+        "risk_level": risk_level,
+        "confidence": confidence,
+        "reasoning": reasoning,
+        "red_flags": red_flags,
+        "recommendations": recommendations
+    }
+
+
 @app.post("/analyze", response_model=FraudAnalysisResponse)
 async def analyze_transaction(transaction: TransactionRequest, request: Request):
     """
     Analyze a transaction for fraud indicators.
     
-    Sends transaction details to Claude with a structured prompt and parses
-    the response into risk level, confidence, reasoning, etc.
+    Uses rule-based logic to simulate LLM fraud analysis without API calls.
+    Good for demos and understanding the fraud detection patterns.
     """
     try:
         # Log request (without sensitive data)
@@ -208,30 +270,8 @@ async def analyze_transaction(transaction: TransactionRequest, request: Request)
             f"Amount: ${transaction.amount:.2f}, Category: {transaction.category}"
         )
         
-        # Build prompt
-        prompt = build_fraud_prompt(transaction)
-        
-        # Call Claude API
-        logger.debug(f"Calling Claude API with prompt length: {len(prompt)} chars")
-        # Call Claude
-        logger.debug(f"Calling Claude API with prompt length: {len(prompt)} chars")
-        
-        message = anthropic_client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1024,
-            temperature=0.3,  # Lower temp = more consistent results
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        )
-        
-        # Extract response text
-        response_text = message.content[0].text
-        logger.debug(f"Claude response: {response_text[:200]}...")
-        
-        # Parse response
-        analysis = parse_claude_response(response_text)
+        # Run mock analysis
+        analysis = analyze_fraud_mock(transaction)
         
         # Build response
         result = FraudAnalysisResponse(
@@ -260,16 +300,13 @@ async def analyze_transaction(transaction: TransactionRequest, request: Request)
 
 @app.get("/health")
 async def health_check():
-@app.get("/health")
-async def health_check():
-    """Health check - verifies API key is configured."""
+    """Health check endpoint."""
+    health = {
+        "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
-        "anthropic_api_configured": bool(os.getenv("ANTHROPIC_API_KEY"))
+        "mode": "mock",
+        "note": "Using rule-based fraud detection for demo purposes"
     }
-    
-    if not health["anthropic_api_configured"]:
-        health["status"] = "unhealthy"
-        health["error"] = "ANTHROPIC_API_KEY not configured"
     
     return health
 
